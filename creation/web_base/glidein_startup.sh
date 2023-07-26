@@ -23,6 +23,13 @@ GWMS_SUBDIR=".gwms.d"
 
 export LANG=C
 
+#Tracing setup:
+#GWMS_SPAN_START should help set TRACE_START
+#ENDPOINT and SERVICE_NAME are default set here
+GWMS_SPAN_START=
+export JAEGER_ENDPOINT="https://landscapeitb.fnal.gov/jaeger-collector/api/traces?format=jaeger.thrift"
+export JAEGER_SERVICE_NAME="glidein"
+
 # General options
 GWMS_MULTIUSER_GLIDEIN=
 # Set GWMS_MULTIUSER_GLIDEIN if the Glidein may spawn processes (for jobs) as a different user.
@@ -191,6 +198,9 @@ usage() {
     echo "  -v <id>                     : operation mode (std, nodebug, fast, check supported)"
     echo "  -multiglidein <num>         : spawn multiple (<num>) glideins (unless also multirestart is set)"
     echo "  -multirestart <num>         : started as one of multiple glideins (glidein number <num>)"
+    echo "  -traceid <id>               : Jaeger trace ID"
+    echo "  -jaegerservicename <name>   : service name given to the trace for the glidein"
+    echo "  -jaegercollectorendpoint <URL>: endpoint which recieves the trace data from the glidein"
     echo "  -param_* <arg>              : user specified parameters"
     exit 1
 }
@@ -231,11 +241,20 @@ do case "$1" in
     -v)          operation_mode="$2";;
     -multiglidein)  multi_glidein="$2";;
     -multirestart)  multi_glidein_restart="$2";;
+    -traceid)                   glidein_trace_id="$2";;
+    -jaegerservicename)         service_name="$2";;
+    -jaegercollectorendpoint)   collector_endpoint="$2";;
     -param_*)    params="$params $(echo "$1" | awk '{print substr($0,8)}') $2";;
     *)  (warn "Unknown option $1"; usage) 1>&2; exit 1
 esac
 shift 2
 done
+
+#Sets the trace id to the one passed and sets the trace start date
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_ID="$glidein_trace_id"
+    GWMS_SPAN_START=$(date)
+fi
 
 # make sure we have a valid slots_layout
 if (echo "x${slots_layout}" | grep -i fixed) >/dev/null 2>&1 ; then
@@ -407,7 +426,7 @@ glide_local_tmp_dir_created=0
 #   glide_local_tmp_dir_created, glide_local_tmp_dir
 # If the start directory has been removed (e.g. HTCSS bug Aug 2022),
 # may remove its current directory leaving the process in a non existing directory
-glidien_cleanup() {
+glidien_cleanup() { #TODO SPELLING ERROR
     if ! cd "${start_dir}"; then
         warn "Cannot find ${start_dir} anymore, will remove my current directory"
     fi
@@ -941,7 +960,7 @@ if [ -n "${client_repository_url}" ]; then
         echo "client_sign_group_id        = '${client_sign_group_id}'"
     fi
 fi
-echo
+echo # TODO: print tracing parameters (good idea)
 echo "Running on $(uname -n)"
 echo "System: $(uname -a)"
 if [ -e '/etc/redhat-release' ]; then
@@ -1061,7 +1080,7 @@ echo "Started in '${start_dir}' ($tmp)"
 
 work_dir_template="${work_dir}/glide_$(dir_id)XXXXXX"
 if ! work_dir="$(mktemp -d "${work_dir_template}")"; then
-    early_glidein_failure "Cannot create word_dir '${work_dir_template}'"
+    early_glidein_failure "Cannot create word_dir '${work_dir_template}'" #TODO SPELLING ERROR (word)
 else
     if ! cd "${work_dir}"; then
         early_glidein_failure "Work dir '${work_dir}' was created but cannot cd into it."
@@ -1246,6 +1265,26 @@ if ! {
 fi
 # shellcheck disable=SC2086
 params2file ${params}
+
+############################################
+# Setup tracing
+if [[ -n "$glidein_trace_id" ]] ; then
+    if ! cp "$start_dir"/pfeil "${gwms_bin_dir}"/ ; then
+        warn "Could not copy pfeil."
+        glidein_trace_id=
+    else
+        chmod +x "${gwms_bin_dir}"/pfeil
+        export TRACE_START="$GWMS_SPAN_START"
+        "${gwms_bin_dir}"/pfeil -v -t span=pretracing -t UUID=${glidein_uuid} pretracing
+        GWMS_SPAN_START=$(date)
+    fi
+fi
+
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
+    "${gwms_bin_dir}"/pfeil -v -t span=TAG_NAME -t UUID=${glidein_uuid} span_name
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span
+fi
 
 ############################################
 # Setup logging
@@ -1852,6 +1891,12 @@ fixup_condor_dir() {
 echo "Downloading files from Factory and Frontend"
 log_write "glidein_startup.sh" "text" "Downloading file from Factory and Frontend" "debug"
 
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
+    "${gwms_bin_dir}"/pfeil -v -t span=init -t UUID=${glidein_uuid} init
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span
+fi
+
 #####################################
 # Fetch descript and signature files
 
@@ -1939,6 +1984,11 @@ fi
 #cleanup_script="$(grep "^cleanup_script " "${gs_id_work_dir}/${gs_id_descript_file}" | cut -s -f 2-)"
 cleanup_script=$(grep "^GLIDEIN_CLEANUP_SCRIPT " "${glidein_config}" | cut -d ' ' -f 2-)
 
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
+    "${gwms_bin_dir}"/pfeil -v -t span=pre_setup -t UUID=${glidein_uuid} pre_setup
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span
+fi
 
 ##############################
 # Fetch all the other files
@@ -2014,6 +2064,12 @@ done
 
 fixup_condor_dir
 
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
+    "${gwms_bin_dir}"/pfeil -v -t span=setup -t UUID=${glidein_uuid} setup
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span
+fi
+
 ##############################
 # Start the glidein main script
 add_config_line "GLIDEIN_INITIALIZED" "1"
@@ -2048,6 +2104,12 @@ echo "=== Last script ended $(date) (${last_startup_end_time}) with code ${ret} 
 echo
 if [ ${ret} -ne 0 ]; then
     warn "Error running '${last_script}'"
+fi
+
+if [[ -n "$glidein_trace_id" ]] ; then
+    export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
+    "${gwms_bin_dir}"/pfeil -v -t span=main -t UUID=${glidein_uuid} main
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span
 fi
 
 #Things like periodic scripts might put messages here if they want them printed in the (stderr) logfile
