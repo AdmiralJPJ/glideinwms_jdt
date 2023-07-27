@@ -1703,7 +1703,7 @@ def submitGlideins(
                     if entry_env[i].startswith("GLIDEIN_ARGUMENTS="):
                         entry_env[
                             i
-                        ] += f" -traceid {trace_id} -jaegercollectorendpoint {jaeger_collector_endpoint} -jaegerservicename {t_parent.jaeger_service_name}"
+                        ] += f" -traceid {trace_id} -jaegercollectorendpoint {jaeger_collector_endpoint} -jaegerservicename {active_tracer.jaeger_service_name}"
                         break
 
                 
