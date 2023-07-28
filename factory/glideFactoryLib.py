@@ -1637,7 +1637,7 @@ def submitGlideins(
 
     # List of job ids that have been submitted - initialize to empty array
     submitted_jids = []
-    trace_id = None
+    active_trace_id = None
 
     try:
         entry_env = get_submit_environment(
@@ -1694,17 +1694,17 @@ def submitGlideins(
                 try:
                     active_tracer = glideinTracer.Tracer(jaeger_collector_endpoint)
                     active_tracer.initial_trace({"entry": entry_name, "client": client_name})
-                    print(f"here in factory things are JDTISSAD: {active_tracer.GLIDEIN_TRACE_ID}")
+                    log.info(f"here in factory things are JDTISSAD: {active_tracer.GLIDEIN_TRACE_ID}")
                     active_trace_id = active_tracer.GLIDEIN_TRACE_ID
                     time.sleep(2)
-                    log.info(f"Successfully generated traceID {trace_id} to collector_endpoint {jaeger_collector_endpoint}")
+                    log.info(f"Successfully generated traceID {active_trace_id} to collector_endpoint {jaeger_collector_endpoint}")
                 except:
                     log.info(f"FAILED TO GENERATE TRACEID AND SEND TO COLLECTOR ENDPOINT AND SERVICE")
                 for i in range(len(entry_env)):
                     if entry_env[i].startswith("GLIDEIN_ARGUMENTS="):
                         entry_env[
                             i
-                        ] += f" -traceid {trace_id} -jaegercollectorendpoint {jaeger_collector_endpoint} -jaegerservicename {active_tracer.jaeger_service_name}"
+                        ] += f" -traceid {active_trace_id} -jaegercollectorendpoint {jaeger_collector_endpoint} -jaegerservicename {active_tracer.jaeger_service_name}"
                         break
 
                 
