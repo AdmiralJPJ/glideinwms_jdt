@@ -62,9 +62,7 @@ class Tracer:
             TraceContextTextMapPropagator().inject(carrier=self.carrier)
             c = {}
             propagate.inject(c)
-            print("JDTISSAD {c}")
             self.GLIDEIN_TRACE_ID = c["uber-trace-id"]
-            print("{self.GLIDEIN_TRACE_ID}")
 
 
 
