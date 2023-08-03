@@ -960,7 +960,10 @@ if [ -n "${client_repository_url}" ]; then
         echo "client_sign_group_id        = '${client_sign_group_id}'"
     fi
 fi
-echo # TODO: print tracing parameters (good idea)
+#Trace prints
+echo "traceid                     = '${glidein_trace_id}'"
+echo "jaegerservicename           = '${service_name}'"
+echo "jaegercollectorendpoint     = '${collector_endpoint}'"
 echo "Running on $(uname -n)"
 echo "System: $(uname -a)"
 if [ -e '/etc/redhat-release' ]; then
@@ -1282,7 +1285,7 @@ fi
 
 if [[ -n "$glidein_trace_id" ]] ; then
     export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
-    "${gwms_bin_dir}"/pfeil -v -t span=TAG_NAME -t UUID=${glidein_uuid} span_name
+    "${gwms_bin_dir}"/pfeil -v -t span=log_setup -t UUID=${glidein_uuid} log_setup
     GWMS_SPAN_START=$(date)  # This is the line to start the next span
 fi
 
@@ -2089,7 +2092,8 @@ trap_with_arg 'on_die' SIGTERM SIGINT SIGQUIT
 #trap 'on_die' INT
 gs_id_work_dir=$(get_work_dir main)
 "${main_dir}"/error_augment.sh -init
-"${gs_id_work_dir}/${last_script}" glidein_config &
+#"${gwms_bin_dir}"/pfeil -v -t span=job -t UUID=${glidein_uuid} job "${gs_id_work_dir}/${last_script}" -- glidein_config & #With tracing
+"${gs_id_work_dir}/${last_script}" -- glidein_config &
 wait $!
 ret=$?
 if [ ${ON_DIE} -eq 1 ]; then
@@ -2108,8 +2112,12 @@ fi
 
 if [[ -n "$glidein_trace_id" ]] ; then
     export TRACE_START="$GWMS_SPAN_START" # These are the lines to close and send the current span
-    "${gwms_bin_dir}"/pfeil -v -t span=main -t UUID=${glidein_uuid} main
-    GWMS_SPAN_START=$(date)  # This is the line to start the next span
+    if [ ${ret} -ne 0 ]; then
+        "${gwms_bin_dir}"/pfeil -v -t span=main -t UUID=${glidein_uuid} main -t error="Error running ${last_script}"
+    else
+        "${gwms_bin_dir}"/pfeil -v -t span=main -t UUID=${glidein_uuid} main
+    fi
+    GWMS_SPAN_START=$(date)  # This is the line to start the next span || shouldn't be necessary
 fi
 
 #Things like periodic scripts might put messages here if they want them printed in the (stderr) logfile
